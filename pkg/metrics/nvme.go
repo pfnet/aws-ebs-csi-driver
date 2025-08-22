@@ -18,6 +18,7 @@ package metrics
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -286,7 +287,11 @@ func getNVMEMetrics(devicePath string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("getNVMEMetrics: error opening device: %w", err)
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			klog.ErrorS(err, "Failed to close device file", "devicePath", devicePath)
+		}
+	}()
 
 	data, err := nvmeReadLogPage(f.Fd(), 0xD0)
 	if err != nil {
@@ -429,7 +434,8 @@ func mapDevicePathsToVolumeIDs(devicePaths []string, lsblkOutput []byte) (map[st
 }
 
 func executeLsblk() ([]byte, error) {
-	cmd := exec.Command("lsblk", "-nd", "--json", "-o", "NAME,SERIAL")
+	// TODO: Pass context down from Prometheus handler
+	cmd := exec.CommandContext(context.TODO(), "lsblk", "-nd", "--json", "-o", "NAME,SERIAL")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("executeLsblk: error running lsblk: %w", err)
