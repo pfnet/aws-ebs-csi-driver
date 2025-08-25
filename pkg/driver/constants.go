@@ -16,7 +16,11 @@ limitations under the License.
 
 package driver
 
-import "time"
+import (
+	"time"
+
+	"github.com/kubernetes-sigs/aws-ebs-csi-driver/pkg/util"
+)
 
 // constants of keys in PublishContext.
 const (
@@ -78,8 +82,9 @@ const (
 	// for the snapshot.
 	VolumeSnapshotContentNameKey = "csi.storage.k8s.io/volumesnapshotcontent/name"
 
-	// BlockExpressKey increases the iops limit for io2 volumes to the block express limit.
-	BlockExpressKey = "blockexpress"
+	// Previously `BlockExpressKey` now deprecated as all io2 volumes now support up to 256,000 IOPS.
+	// See https://docs.aws.amazon.com/ebs/latest/userguide/ebs-volume-types.html.
+	DeprecatedBlockExpressKey = "blockexpress"
 
 	// FSTypeKey configures the file system type that will be formatted during volume creation.
 	FSTypeKey = "csi.storage.k8s.io/fstype"
@@ -108,6 +113,9 @@ const (
 
 	// OutpostArn represents key for outpost's arn.
 	OutpostArnKey = "outpostarn"
+
+	// BlockAttachUntilInitializedKey will prevent restored volume from being attached until it is fully initialized.
+	BlockAttachUntilInitializedKey = "blockattachuntilinitialized"
 )
 
 // constants of keys in snapshot parameters.
@@ -177,7 +185,7 @@ const (
 // constants for node k8s API use.
 const (
 	// AgentNotReadyNodeTaintKey contains the key of taints to be removed on driver startup.
-	AgentNotReadyNodeTaintKey = "ebs.csi.aws.com/agent-not-ready"
+	AgentNotReadyNodeTaintKey = util.DriverName + "/agent-not-ready"
 )
 
 type fileSystemConfig struct {

@@ -18,7 +18,7 @@
 
 ## Variables/Functions
 
-VERSION?=v1.44.0
+VERSION?=v1.48.0
 
 PKG=github.com/kubernetes-sigs/aws-ebs-csi-driver
 GIT_COMMIT?=$(shell git rev-parse HEAD)
@@ -55,6 +55,7 @@ CLUSTER_NAME?=ebs-csi-e2e.k8s.local
 CLUSTER_TYPE?=kops
 
 GINKGO_WINDOWS_SKIP?="\[Disruptive\]|\[Serial\]|\[Flaky\]|\[LinuxOnly\]|\[Feature:VolumeSnapshotDataSource\]|\(xfs\)|\(ext4\)|\(block volmode\)"
+GINKGO_BOTTLEROCKET_SKIP?="\[Disruptive\]|\[Serial\]|\[Flaky\]|should not mount / map unused volumes in a pod \[LinuxOnly\]"
 
 # split words on hyphen, access by 1-index
 word-hyphen = $(word $2,$(subst -, ,$1))
@@ -88,7 +89,7 @@ test/coverage:
 tools: bin/aws bin/ct bin/eksctl bin/ginkgo bin/golangci-lint bin/gomplate bin/helm bin/kops bin/kubetest2 bin/mockgen bin/shfmt
 
 .PHONY: update
-update: update/gofix update/gofmt update/kustomize update/mockgen update/gomod update/shfmt update/generate-license-header
+update: update/gofix update/gofmt update/golangci-fix update/kustomize update/mockgen update/gomod update/shfmt update/generate-license-header
 	@echo "All updates succeeded!"
 
 .PHONY: verify
@@ -151,6 +152,11 @@ e2e/external: bin/helm bin/kubetest2
 .PHONY: e2e/external-a1-eks
 e2e/external-a1-eks: bin/helm bin/kubetest2
 	HELM_EXTRA_FLAGS="--set=a1CompatibilityDaemonSet=true" \
+	./hack/e2e/run.sh
+
+.PHONY: e2e/external-eks-bottlerocket
+e2e/external-eks-bottlerocket: bin/helm bin/kubetest2
+	GINKGO_SKIP=$(GINKGO_BOTTLEROCKET_SKIP) \
 	./hack/e2e/run.sh
 
 .PHONY: e2e/external-fips
@@ -259,7 +265,7 @@ sub-image-%:
 
 .PHONY: image
 image:
-	docker buildx build \
+	BUILDX_NO_DEFAULT_ATTESTATIONS=1 docker buildx build \
 		--platform=$(OS)/$(ARCH) \
 		--progress=plain \
 		--target=$(OS)-$(OSVERSION) \
@@ -268,7 +274,6 @@ image:
 		--build-arg=GOPROXY=$(GOPROXY) \
 		--build-arg=VERSION=$(VERSION) \
 		$(FIPS_DOCKER_ARGS) \
-		`./hack/provenance.sh` \
 		$(DOCKER_EXTRA_ARGS) \
 		.
 
@@ -299,6 +304,12 @@ update/gofix:
 .PHONY: update/gofmt
 update/gofmt:
 	gofmt -s -w .
+
+.PHONY: update/golangci-fix
+update/golangci-fix: bin/golangci-lint
+ifndef SKIP_GOLANGCI_FIX
+	./bin/golangci-lint run --fix ./... || true
+endif
 
 .PHONY: update/kustomize
 update/kustomize: bin/helm
