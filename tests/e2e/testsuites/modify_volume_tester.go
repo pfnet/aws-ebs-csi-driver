@@ -58,7 +58,7 @@ func (modifyVolumeTest *ModifyVolumeTest) Run(c clientset.Interface, ns *v1.Name
 	testVolume, _ := volumeDetails.SetupDynamicPersistentVolumeClaim(c, ns, ebsDriver)
 	defer testVolume.Cleanup()
 
-	parametersWithPrefix := PrefixAnnotations(util.DriverName+"/", modifyVolumeTest.ModifyVolumeParameters)
+	parametersWithPrefix := PrefixAnnotations(util.GetDriverName()+"/", modifyVolumeTest.ModifyVolumeParameters)
 
 	By("deploying pod continuously writing to volume")
 	formatOptionMountPod := createPodWithVolume(c, ns, PodCmdContinuousWrite(DefaultMountPath), testVolume, volumeDetails)
@@ -80,7 +80,7 @@ func (modifyVolumeTest *ModifyVolumeTest) Run(c clientset.Interface, ns *v1.Name
 				Name:      formatOptionMountPod.pod.Name,
 				Namespace: ns.Name,
 			},
-			DriverName: util.DriverName,
+			DriverName: util.GetDriverName(),
 			Parameters: modifyVolumeTest.ModifyVolumeParameters,
 		}, metav1.CreateOptions{})
 		framework.ExpectNoError(err)
@@ -112,6 +112,17 @@ func (modifyVolumeTest *ModifyVolumeTest) Run(c clientset.Interface, ns *v1.Name
 		err = WaitForPvToResize(c, ns, testVolume.persistentVolume.Name, updatedPvcSize, DefaultResizeTimout, DefaultK8sAPIPollingInterval)
 		framework.ExpectNoError(err, fmt.Sprintf("fail to resize pv(%s): %v", modifyingPvc.Name, err))
 	}
+
+	By("verifying volume properties")
+	volumeID := testVolume.persistentVolume.Spec.CSI.VolumeHandle
+
+	expected := BuildExpectedParameters(modifyVolumeTest.ModifyVolumeParameters, "")
+	if modifyVolumeTest.ShouldResizeVolume {
+		sizeGiB := util.BytesToGiB(updatedPvcSize.Value())
+		expected.Size = &sizeGiB
+	}
+
+	VerifyVolumeProperties(volumeID, expected)
 }
 
 func attemptInvalidModification(c clientset.Interface, ns *v1.Namespace, testVolume *TestPersistentVolumeClaim) {

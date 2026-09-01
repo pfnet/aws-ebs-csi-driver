@@ -29,6 +29,11 @@ source "${BASE_DIR}/util.sh"
 source "${BASE_DIR}/kops/kops.sh"
 source "${BASE_DIR}/eksctl/eksctl.sh"
 
+if [[ "${WINDOWS}" == "true" ]] && [[ "${CLUSTER_TYPE}" == "kops" ]]; then
+  echo "Error: Windows clusters are not supported with kops. Please set CLUSTER_TYPE=eksctl when WINDOWS=true" >&2
+  exit 1
+fi
+
 if [[ "${CLUSTER_TYPE}" == "kops" ]]; then
   BUCKET_CHECK=$("${BIN}/aws" s3api head-bucket --region us-east-1 --bucket "${KOPS_BUCKET}" 2>&1 || true)
   if grep -q "Forbidden" <<<"${BUCKET_CHECK}"; then
@@ -54,7 +59,8 @@ if [[ "${CLUSTER_TYPE}" == "kops" ]]; then
     "$KUBECONFIG" \
     "${BASE_DIR}/kops/patch-cluster.yaml" \
     "${BASE_DIR}/kops/patch-node.yaml" \
-    "s3://${KOPS_BUCKET}"
+    "s3://${KOPS_BUCKET}" \
+    "${BIN}/gomplate"
 elif [[ "${CLUSTER_TYPE}" == "eksctl" ]]; then
   eksctl_create_cluster \
     "$CLUSTER_NAME" \

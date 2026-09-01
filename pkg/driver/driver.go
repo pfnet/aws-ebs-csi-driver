@@ -43,23 +43,27 @@ const (
 	NodeMode Mode = "node"
 	// AllMode is the mode that only starts both the controller and the node service.
 	AllMode Mode = "all"
+
+	// MetadataLabelerMode is the mode that starts the metadata labeler.
+	MetadataLabelerMode Mode = "metadataLabeler"
 )
 
 const (
 	WellKnownZoneTopologyKey = "topology.kubernetes.io/zone"
-	// This name is purposefully consistent with the CCM's ZoneID topology key.
+	// ZoneIDTopologyKey name is purposefully consistent with the CCM's ZoneID topology key.
 	// This key is only used for provisioning by az-id and will not be used for node topology
 	// to prevent any backwards compatibility issues.
 	ZoneIDTopologyKey = "topology.k8s.aws/zone-id"
 	OSTopologyKey     = "kubernetes.io/os"
 )
 
+// Initialized in NewDriver (depend on driver name).
 var (
-	DriverName      string
-	AwsPartitionKey string
-	AwsAccountIDKey string
-	AwsRegionKey    string
-	AwsOutpostIDKey string
+	AgentNotReadyNodeTaintKey string
+	AwsPartitionKey           string
+	AwsAccountIDKey           string
+	AwsRegionKey              string
+	AwsOutpostIDKey           string
 	// Deprecated: Use the WellKnownZoneTopologyKey instead.
 	ZoneTopologyKey string
 )
@@ -72,16 +76,21 @@ type Driver struct {
 	csi.UnimplementedIdentityServer
 }
 
-func NewDriver(c cloud.Cloud, o *Options, m mounter.Mounter, md metadata.MetadataService, k kubernetes.Interface, driverName string) (*Driver, error) {
-	DriverName = driverName
-	AwsPartitionKey = "topology." + DriverName + "/partition"
-	AwsAccountIDKey = "topology." + DriverName + "/account-id"
-	AwsRegionKey = "topology." + DriverName + "/region"
-	AwsOutpostIDKey = "topology." + DriverName + "/outpost-id"
+// initVariables initializes variables that depend on driver name.
+// Separated into a spearate function from NewDriver so it can be called in tests.
+func initVariables() {
+	AwsPartitionKey = "topology." + util.GetDriverName() + "/partition"
+	AwsAccountIDKey = "topology." + util.GetDriverName() + "/account-id"
+	AwsRegionKey = "topology." + util.GetDriverName() + "/region"
+	AwsOutpostIDKey = "topology." + util.GetDriverName() + "/outpost-id"
 	// Deprecated: Use the WellKnownZoneTopologyKey instead.
-	ZoneTopologyKey = "topology." + DriverName + "/zone"
+	ZoneTopologyKey = "topology." + util.GetDriverName() + "/zone"
+	AgentNotReadyNodeTaintKey = util.GetDriverName() + "/agent-not-ready"
+}
 
-	klog.InfoS("Driver Information", "Driver", DriverName, "Version", driverVersion)
+func NewDriver(c cloud.Cloud, o *Options, m mounter.Mounter, md metadata.MetadataService, k kubernetes.Interface) (*Driver, error) {
+	klog.InfoS("Driver Information", "Driver", util.GetDriverName(), "Version", driverVersion)
+	initVariables()
 
 	if err := ValidateDriverOptions(o); err != nil {
 		return nil, fmt.Errorf("invalid driver options: %w", err)
@@ -99,6 +108,8 @@ func NewDriver(c cloud.Cloud, o *Options, m mounter.Mounter, md metadata.Metadat
 	case AllMode:
 		driver.controller = NewControllerService(c, o)
 		driver.node = NewNodeService(o, md, m, k)
+	case MetadataLabelerMode:
+		return nil, fmt.Errorf("mode %s is not handled by the driver, it is handled separately in main", o.Mode)
 	default:
 		return nil, fmt.Errorf("unknown mode: %s", o.Mode)
 	}
@@ -118,7 +129,7 @@ func (d *Driver) Run() error {
 		return err
 	}
 
-	logErr := func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	logErr := func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		resp, err := handler(ctx, req)
 		if err != nil {
 			klog.ErrorS(err, "GRPC error")
@@ -147,6 +158,8 @@ func (d *Driver) Run() error {
 		csi.RegisterControllerServer(d.srv, d.controller)
 		csi.RegisterNodeServer(d.srv, d.node)
 		rpc.RegisterModifyServer(d.srv, d.controller)
+	case MetadataLabelerMode:
+		return fmt.Errorf("mode %s is not handled by the driver, it is handled separately in main", d.options.Mode)
 	default:
 		return fmt.Errorf("unknown mode: %s", d.options.Mode)
 	}
