@@ -22,31 +22,19 @@ permissions:
   security-events: write # Update findings in security tab
 
 jobs:
-  build-matrix:
+  trivy-scan:
     runs-on: ubuntu-latest
-    outputs:
-      images: ${{ steps.set-matrix.outputs.result }}
-    
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
-      - id: set-matrix
-        uses: mikefarah/yq@v4
-        with:
-          # Dynamically build the matrix of images to scan
-          cmd: "yq '[{\"repository\": .image.repository, \"tag\": \"v'$(yq '.appVersion' charts/aws-ebs-csi-driver/Chart.yaml)'\"}] + (.sidecars | map(.image)) | map(.repository + \":\" + .tag) | . style=\"flow\"' charts/aws-ebs-csi-driver/values.yaml"
-  
-  trivy-scan:
-    needs: build-matrix
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        image: ${{ fromJson(needs.build-matrix.outputs.images) }}
-    
-    steps:
+      - name: Get driver image tag
+        id: image
+        run: echo "tag=v$(yq '.appVersion' charts/aws-ebs-csi-driver/Chart.yaml)" >> "$GITHUB_OUTPUT"
+
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37  # v6.1.0
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -57,25 +45,25 @@ jobs:
           role-skip-session-tagging: true
 
       - name: Login to Amazon ECR Public
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@376925c9d111252e87ae59691e5a442dd100ef6a  # v2.1.3
         with:
           registry-type: public
-          
+
       - name: Pull container image
-        run: docker pull ${{ matrix.image }}
+        run: docker pull public.ecr.aws/ebs-csi-driver/aws-ebs-csi-driver:${{ steps.image.outputs.tag }}
 
       - name: Scan container image
-        uses: aquasecurity/trivy-action@0.32.0
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1  # v0.35.0
         env:
           TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db,public.ecr.aws/aquasecurity/trivy-db
         with:
-          image-ref: '${{ matrix.image }}'
+          image-ref: 'public.ecr.aws/ebs-csi-driver/aws-ebs-csi-driver:${{ steps.image.outputs.tag }}'
           output: 'results.sarif'
           format: 'sarif'
           ignore-unfixed: true
           severity: 'HIGH,CRITICAL'
-      
+
       - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225  # v4.35.2
         with:
           sarif_file: 'results.sarif'
