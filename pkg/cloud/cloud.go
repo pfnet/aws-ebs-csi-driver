@@ -422,7 +422,7 @@ var _ Cloud = &cloud{}
 // initVariables initializes variables that depend on driver name.
 // Separated into a separate function from NewCloud so it can be called in tests.
 func initVariables() {
-	AwsEbsDriverTagKey = "ebs.csi.aws.com/cluster"
+	AwsEbsDriverTagKey = util.GetDriverName() + "/cluster"
 	AllowAutoIOPSIncreaseOnModifyKey = util.GetDriverName() + "/AllowAutoIOPSIncreaseOnModify"
 	IOPSPerGBKey = util.GetDriverName() + "/IOPSPerGb"
 }
